@@ -1,6 +1,8 @@
 'use strict';
 
 const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
+const thumb = imports.service.ui.thumbnailer;
 
 
 /**
@@ -163,6 +165,71 @@ var SmsURI = class URI {
         let uri = 'sms:' + this.recipients.join(',');
 
         return (this.body) ? uri + '?body=' + escape(this.body) : uri;
+    }
+};
+
+
+/**
+ * Thumbnailer class from Polari
+ *
+ * Credits: https://gitlab.gnome.org/GNOME/polari/-/merge_requests/134
+ */
+var Thumbnailer = class Thumbnailer {
+    static getDefault() {
+        if (!this._singleton)
+            this._singleton = new Thumbnailer();
+        return this._singleton;
+    }
+
+    constructor() {
+        this._urlQueue = [];
+        this._subProc = null;
+        this._thumbnailsDir = `${GLib.get_user_cache_dir()}/gsconnect/thumbnails/`;
+
+        GLib.mkdir_with_parents(this._thumbnailsDir, 0o755);
+    }
+
+    getThumbnail(uri, callback) {
+        let filename = this._generateFilename(uri);
+        let data = {uri, filename, callback};
+
+        this._processData(data);
+    }
+
+    _processData(data) {
+        if (GLib.file_test(`${data.filename}`, GLib.FileTest.EXISTS))
+            this._generationDone(data);
+        else if (!this._subProc)
+            this._generateThumbnail(data);
+        else
+            this._urlQueue.push(data);
+    }
+
+    _generationDone(data) {
+        data.callback(data.filename);
+
+        let nextData = this._urlQueue.shift();
+        if (nextData)
+            this._processData(nextData);
+    }
+
+    async _generateThumbnail(data) {
+        try {
+            let {filename, uri} = data;
+            let task = new thumb.Task(uri, filename);
+            await task.run();
+        } catch (e) {
+            debug(e, data.uri);
+        } finally {
+            this._generationDone(data);
+        }
+    }
+
+    _generateFilename(url) {
+        let checksum = GLib.Checksum.new(GLib.ChecksumType.MD5);
+        checksum.update(url);
+
+        return `${this._thumbnailsDir}${checksum.get_string()}.png`;
     }
 };
 

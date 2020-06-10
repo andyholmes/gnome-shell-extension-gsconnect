@@ -148,6 +148,9 @@
     <key name="legacy-sms" type="b">
       <default>false</default>
     </key>
+    <key name="url-previews" type="b">
+      <default>false</default>
+    </key>
   </schema>
   <schema id="org.gnome.Shell.Extensions.GSConnect.Plugin.SystemVolume">
     <key name="share-sinks" type="b">

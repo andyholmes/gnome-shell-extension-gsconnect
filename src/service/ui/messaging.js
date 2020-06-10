@@ -100,24 +100,6 @@ function getContactsForAddresses(device, addresses) {
     }
 }
 
-const setAvatarVisible = function(row, visible) {
-    let incoming = (row.type === Sms.MessageBox.INBOX);
-
-    // Adjust the margins
-    if (visible) {
-        row.grid.margin_start = incoming ? 6 : 56;
-        row.grid.margin_bottom = 6;
-    } else {
-        row.grid.margin_start = incoming ? 44 : 56;
-        row.grid.margin_bottom = 0;
-    }
-
-    // Show hide the avatar
-    if (incoming) {
-        row.avatar.visible = visible;
-    }
-};
-
 
 /**
  * A simple GtkLabel subclass with a chat bubble appearance
@@ -166,6 +148,143 @@ var MessageLabel = GObject.registerClass({
         }
 
         return false;
+    }
+});
+
+
+var MessageRow = GObject.registerClass({
+    GTypeName: 'GSConnectMessageRow'
+}, class MessageWidget extends Gtk.ListBoxRow {
+
+    _init(message, contact) {
+        super._init({
+            activatable: false,
+            selectable: false,
+            hexpand: true,
+            visible: true
+        });
+
+        // Sort properties
+        this.message = message;
+        this.date = message.date;
+        this.type = message.type;
+        this.sender = message.addresses[0].address || 'unknown';
+
+        this._grid = new Gtk.Grid({
+            can_focus: false,
+            hexpand: true,
+            margin_top: 6,
+            margin_bottom: 6,
+            margin_start: 6,
+            margin_end: this.incoming ? 18 : 6,
+            column_spacing: 6,
+            halign: this.incoming ? Gtk.Align.START : Gtk.Align.END,
+            visible: true
+        });
+        this.add(this._grid);
+
+        this._box = new Gtk.Box({
+            orientation: Gtk.Orientation.VERTICAL,
+            spacing: 6,
+            visible: true
+        });
+        this._grid.attach(this._box, 1, 0, 1, 1);
+
+        this._label = new Gtk.Label({
+            label: URI.linkify(message.body, message.date),
+            halign: this.incoming ? Gtk.Align.START : Gtk.Align.END,
+            selectable: true,
+            tooltip_text: getTime(message.date),
+            use_markup: true,
+            visible: true,
+            wrap: true,
+            wrap_mode: Pango.WrapMode.WORD_CHAR,
+            xalign: 0
+        });
+        this._label.connect('activate-link', this._onActivateLink);
+        this._box.add(this._label);
+
+        this._image = new Gtk.Image({
+            icon_name: 'image-loading-symbolic',
+            halign: Gtk.Align.CENTER,
+            pixel_size: 32,
+            height_request: 90,
+            width_request: 120,
+            visible: false,
+        });
+        this._image.get_style_context().add_class(Gtk.STYLE_CLASS_BACKGROUND);
+        this._box.add(this._image);
+
+        if (this.incoming) {
+            this._box.get_style_context().add_class('message-in');
+
+            // Add avatar for incoming messages
+            this._avatar = new Contacts.Avatar(contact);
+            this._avatar.valign = Gtk.Align.END;
+            this._grid.attach(this._avatar, 0, 0, 1, 1);
+        } else {
+            this._box.get_style_context().add_class('message-out');
+        }
+    }
+
+    _onActivateLink(label, uri) {
+        Gtk.show_uri_on_window(
+            label.get_toplevel(),
+            uri.includes('://') ? uri : `https://${uri}`,
+            Gtk.get_current_event_time()
+        );
+
+        return true;
+    }
+
+    get incoming() {
+        if (this._incoming === undefined)
+            this._incoming = (this.message.type === Sms.MessageBox.INBOX);
+
+        return this._incoming;
+    }
+
+    get show_avatar() {
+        if (this._avatar === undefined)
+            return false;
+
+        return this._avatar.visible;
+    }
+
+    set show_avatar(visible) {
+        if (this.show_avatar === visible)
+            return;
+
+        // Adjust the margins
+        if (visible) {
+            this._grid.margin_start = this.incoming ? 6 : 56;
+            this._grid.margin_bottom = 6;
+        } else {
+            this._grid.margin_start = this.incoming ? 44 : 56;
+            this._grid.margin_bottom = 0;
+        }
+
+        // Show hide the avatar
+        if (this.incoming) {
+            this._avatar.visible = visible;
+        }
+    }
+
+    preview() {
+        let uris = URI.findUrls(this.message.body);
+
+        if (uris.length > 0) {
+            this._image.visible = true;
+
+            URI.Thumbnailer.getDefault().getThumbnail(uris[0].url, (path) => {
+                this._image.set_from_file(path);
+
+                if (this._image.pixbuf) {
+                    let title = this._image.pixbuf.get_option('tEXt::Title');
+                    this._image.tooltip_text = title;
+                }
+            });
+        }
     }
 });
 
@@ -537,51 +656,19 @@ const ConversationWidget = GObject.registerClass({
      * Messages
      */
     _createMessageRow(message) {
-        let incoming = (message.type === Sms.MessageBox.INBOX);
+        let sender = message.addresses[0].address || 'unknown';
 
-        let row = new Gtk.ListBoxRow({
-            activatable: false,
-            selectable: false,
-            hexpand: true,
-            visible: true
-        });
-
-        // Sort properties
-        row.date = message.date;
-        row.type = message.type;
-        row.sender = message.addresses[0].address || 'unknown';
-
-        row.grid = new Gtk.Grid({
-            can_focus: false,
-            hexpand: true,
-            margin_top: 6,
-            margin_bottom: 6,
-            margin_start: 6,
-            margin_end: incoming ? 18 : 6,
-            //margin: 6,
-            column_spacing: 6,
-            halign: incoming ? Gtk.Align.START : Gtk.Align.END
-        });
-        row.add(row.grid);
-
-        // Add avatar for incoming messages
-        if (incoming) {
-            // Ensure we have a contact
-            if (this.contacts[row.sender] === undefined) {
-                this.contacts[row.sender] = this.device.contacts.query({
-                    number: row.sender
-                });
-            }
-
-            row.avatar = new Contacts.Avatar(this.contacts[row.sender]);
-            row.avatar.valign = Gtk.Align.END;
-            row.grid.attach(row.avatar, 0, 0, 1, 1);
+        // Ensure we have a contact
+        if (this.contacts[sender] === undefined) {
+            this.contacts[sender] = this.device.contacts.query({
+                number: sender
+            });
         }
 
-        let widget = new MessageLabel(message);
-        row.grid.attach(widget, 1, 0, 1, 1);
+        let row = new MessageRow(message, this.contacts[sender]);
 
-        row.show_all();
+        if (row.incoming && this.plugin.settings.get_boolean('url-previews'))
+            row.preview();
 
         return row;
     }
@@ -609,7 +696,7 @@ const ConversationWidget = GObject.registerClass({
         if (row.get_name() === 'pending') return;
 
         if (before === null) {
-            setAvatarVisible(row, true);
+            row.show_avatar = true;
             return;
         }
 
@@ -626,17 +713,17 @@ const ConversationWidget = GObject.registerClass({
             header.label = getTime(row.date);
 
             // Also show the avatar
-            setAvatarVisible(row, true);
+            row.show_avatar = true;
 
         // Or if the previous sender was the same, hide its avatar
         } else if (row.type === before.type &&
                    row.sender.equalsPhoneNumber(before.sender)) {
-            setAvatarVisible(before, false);
-            setAvatarVisible(row, true);
+            before.show_avatar = false;
+            row.show_avatar = true;
 
         // otherwise show the avatar
         } else {
-            setAvatarVisible(row, true);
+            row.show_avatar = true;
         }
     }
 
