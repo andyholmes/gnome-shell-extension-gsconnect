@@ -166,6 +166,7 @@ var Plugin = GObject.registerClass({
             // We'll show a notification (success or failure)
             let title, body, iconName;
             let buttons = [];
+            let action = null;
 
             try {
                 await transfer.start();
@@ -176,6 +177,10 @@ var Plugin = GObject.registerClass({
                     packet.body.filename,
                     this.device.name
                 );
+                action = {
+                    name: 'openPathSelectFile',
+                    parameter: new GLib.Variant('s', file.get_uri()),
+                };
                 buttons = [
                     {
                         label: _('Open Folder'),
@@ -212,6 +217,7 @@ var Plugin = GObject.registerClass({
                 id: transfer.uuid,
                 title: title,
                 body: body,
+                action: action,
                 buttons: buttons,
                 icon: new Gio.ThemedIcon({name: iconName}),
             });
