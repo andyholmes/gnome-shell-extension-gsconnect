@@ -125,6 +125,8 @@ class GSConnectShareExtension(GObject.Object, FileManager.MenuProvider):
 
         for object_path, props in objects.items():
             props = props['org.gnome.Shell.Extensions.GSConnect.Device']
+            if not props:
+                continue
 
             self.devices[object_path] = (props['Name'],
                                          Gio.DBusActionGroup.get(
